@@ -15,7 +15,7 @@ $(function() {
     sequencer.do(function () { console.log("3rd after waiting for handle for 3 seconds"); });
 
     // A jquery.transit transition (optional jquery.transit-extension)
-    sequencer.doTransition($(".animated"), { scale: 2, duration: 2000 });
+    sequencer.doTransit($(".animated"), { scale: 2, duration: 2000 });
 
     // Continues only after the transition is complete
     sequencer.do(function () { console.log("4th after jquery.transit transition is complete"); });
@@ -24,7 +24,7 @@ $(function() {
     var blockUntilLaterHandle = new Handle();
     sequencer.doWaitForHandle(blockUntilLaterHandle);
 
-    // This will wait for the promise to be fulfilled (requires a promise polyfill such as es6-promise)
+    // Wait for the promise to be fulfilled (optional es6-promise-extension)
     // You can optionally obtain the promise's value or rejection reason
     var url = "https://cors-test.appspot.com/test";
     sequencer.doWaitForPromise(fetch(url), function (response) {
