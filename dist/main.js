@@ -65,29 +65,29 @@
 	
 	  // Enqueue a simple synchronous action
 	  sequencer.do(function () {
-	    log("1st instantly");
+	    return log("1st instantly");
 	  });
 	
 	  // Waits for one second then performs an action after the delay has elapsed.
 	  // This also demonstrates "do" task chaining.
 	  sequencer.doWait(1000).do(function () {
-	    log("2nd after 1 second");
+	    return log("2nd after 1 second");
 	  });
 	
 	  // Performs an action and waits until release() is called
 	  sequencer.doWaitForRelease(function (release) {
-	    setTimeout(release, 3000);
+	    return setTimeout(release, 3000);
 	  });
 	
 	  sequencer.do(function () {
-	    log("3rd after waiting for a release() call");
+	    return log("3rd after waiting for a release() call");
 	  });
 	
 	  // Block until the handle is released
 	  sequencer.doWaitForHandle(blockUntilLaterHandle);
 	
 	  sequencer.do(function () {
-	    log("4rd after waiting for a manually-created handle to be released");
+	    return log("4th after waiting for a manually-created handle to be released");
 	  });
 	
 	  // Performs an action and waits until release() is called a certain number of times.
@@ -98,18 +98,38 @@
 	  });
 	
 	  sequencer.do(function () {
-	    log("5th after waiting for two release() calls");
+	    return log("5th after waiting for two release() calls");
 	  });
 	
 	  // Wait for a promise to be fulfilled.
 	  // You can optionally obtain the promise's value and/or rejection reason.
 	  var url = "https://cors-test.appspot.com/test";
 	  sequencer.doWaitForPromise(fetch(url), function (response) {
-	    log("> Promise Resolved : Received HTTP " + response.status + " from " + url);
+	    return log("(Promise Resolved : HTTP " + response.status + " from " + url + ")");
 	  });
 	
 	  sequencer.do(function () {
-	    log("6th after waiting for a promise to be resolved");
+	    return log("6th after waiting for a promise to be resolved");
+	  });
+	
+	  sequencer.doSequence(function (s) {
+	    s.doWait(1000);
+	    s.do(function () {
+	      return log("> Subsequence : First");
+	    });
+	    s.doWait(1000);
+	    s.do(function () {
+	      return log("> Subsequence : Second");
+	    });
+	    s.doWait(1000);
+	    s.do(function () {
+	      return log("> Subsequence : Third");
+	    });
+	    s.doWait(1000);
+	  });
+	
+	  sequencer.do(function () {
+	    return log("7th after waiting for a subsequence to complete");
 	  });
 	};
 
@@ -164,7 +184,17 @@
 	/* 0 */
 	/***/ (function(module, exports, __webpack_require__) {
 	
-		module.exports = __webpack_require__(1);
+		let Sequencer = __webpack_require__(1);
+		
+		__webpack_require__(4).extend(Sequencer.prototype);
+		__webpack_require__(5).extend(Sequencer.prototype);
+		__webpack_require__(6).extend(Sequencer.prototype);
+		__webpack_require__(7).extend(Sequencer.prototype);
+		__webpack_require__(8).extend(Sequencer.prototype);
+		__webpack_require__(9).extend(Sequencer.prototype);
+		__webpack_require__(10).extend(Sequencer.prototype);
+		
+		module.exports = Sequencer;
 	
 	
 	/***/ }),
@@ -223,13 +253,6 @@
 		    task.perform(handle);
 		  }
 		};
-		
-		__webpack_require__(4).extend(Sequencer.prototype);
-		__webpack_require__(5).extend(Sequencer.prototype);
-		__webpack_require__(6).extend(Sequencer.prototype);
-		__webpack_require__(7).extend(Sequencer.prototype);
-		__webpack_require__(8).extend(Sequencer.prototype);
-		__webpack_require__(9).extend(Sequencer.prototype);
 		
 		Sequencer.Handle = Handle; // Expose the Handle type in the API
 		
@@ -483,6 +506,38 @@
 	
 	/***/ }),
 	/* 5 */
+	/***/ (function(module, exports, __webpack_require__) {
+	
+		"use strict";
+		
+		var Sequencer = __webpack_require__(1);
+		
+		var DoSequenceTask = function DoSequenceTask(action) {
+		  var that = this;
+		
+		  this.sequencer = new Sequencer();
+		
+		  this.perform = function (handle) {
+		    action(that.sequencer); // Let the caller enqueue his own subtasks
+		    that.sequencer.do(handle.release); // Enqueue a final task to release the sequence task's handle
+		  };
+		  this.cancel = function (handle) {
+		    that.sequencer.clear();
+		    handle.release();
+		  };
+		};
+		
+		module.exports = {
+		  extend: function extend(sequencerPrototype) {
+		    sequencerPrototype.doSequence = function (action) {
+		      this.push(new DoSequenceTask(action));
+		      return this;
+		    };
+		  }
+		};
+	
+	/***/ }),
+	/* 6 */
 	/***/ (function(module, exports) {
 	
 		"use strict";
@@ -511,7 +566,7 @@
 		};
 	
 	/***/ }),
-	/* 6 */
+	/* 7 */
 	/***/ (function(module, exports) {
 	
 		"use strict";
@@ -539,7 +594,7 @@
 		};
 	
 	/***/ }),
-	/* 7 */
+	/* 8 */
 	/***/ (function(module, exports) {
 	
 		"use strict";
@@ -575,12 +630,12 @@
 		};
 	
 	/***/ }),
-	/* 8 */
+	/* 9 */
 	/***/ (function(module, exports) {
 	
 		"use strict";
 		
-		var DoWaitForRelease = function DoWaitForRelease(action) {
+		var DoWaitForReleaseTask = function DoWaitForReleaseTask(action) {
 		  this.perform = function (handle) {
 		    // The caller is provided with the release() function directly.
 		    // The use of an handle is an internal implementation detail.
@@ -594,21 +649,21 @@
 		module.exports = {
 		  extend: function extend(sequencerPrototype) {
 		    sequencerPrototype.doWaitForRelease = function (action) {
-		      this.push(new DoWaitForRelease(action));
+		      this.push(new DoWaitForReleaseTask(action));
 		      return this;
 		    };
 		  }
 		};
 	
 	/***/ }),
-	/* 9 */
+	/* 10 */
 	/***/ (function(module, exports, __webpack_require__) {
 	
 		"use strict";
 		
-		var CounterHandle = __webpack_require__(10);
+		var CounterHandle = __webpack_require__(11);
 		
-		var DoWaitForReleases = function DoWaitForReleases(count, action) {
+		var DoWaitForReleasesTask = function DoWaitForReleasesTask(count, action) {
 		  var that = this;
 		
 		  this.counterHandle = new CounterHandle(count);
@@ -629,14 +684,14 @@
 		module.exports = {
 		  extend: function extend(sequencerPrototype) {
 		    sequencerPrototype.doWaitForReleases = function (count, action) {
-		      this.push(new DoWaitForReleases(count, action));
+		      this.push(new DoWaitForReleasesTask(count, action));
 		      return this;
 		    };
 		  }
 		};
 	
 	/***/ }),
-	/* 10 */
+	/* 11 */
 	/***/ (function(module, exports) {
 	
 		"use strict";
