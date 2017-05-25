@@ -47,52 +47,70 @@
 	"use strict";
 	
 	var Sequencer = __webpack_require__(1);
+	var Handle = Sequencer.Handle;
 	var fetch = __webpack_require__(2);
 	
 	window.onload = function () {
+	  function log(text) {
+	    var div = document.querySelector("#log");
+	    div.innerHTML += text + "<br/>";
+	  }
+	
+	  // Create a handle and release it after some time has passed.
+	  // The sequence will block at `doWaitForHandle(blockUntilLaterHandle)` until the handle is released.
+	  var blockUntilLaterHandle = new Handle();
+	  setTimeout(blockUntilLaterHandle.release, 10000);
+	
 	  var sequencer = new Sequencer();
 	
 	  // Enqueue a simple synchronous action
 	  sequencer.do(function () {
-	    console.log("1st");
+	    log("1st instantly");
 	  });
 	
 	  // Waits for one second then performs an action after the delay has elapsed.
 	  // This also demonstrates "do" task chaining.
 	  sequencer.doWait(1000).do(function () {
-	    console.log("2nd after 1 second");
+	    log("2nd after 1 second");
 	  });
 	
-	  // Performs an action and waits until the given handle is released
-	  sequencer.doWithHandle(function (handle) {
-	    setTimeout(handle.release, 3000);
+	  // Performs an action and waits until release() is called
+	  sequencer.doWaitForRelease(function (release) {
+	    setTimeout(release, 3000);
 	  });
 	
-	  // Another simple synchronous action
 	  sequencer.do(function () {
-	    console.log("3rd after waiting for handle for 3 seconds");
+	    log("3rd after waiting for a release() call");
 	  });
 	
-	  // Create a handle and wait until some asynchronous code releases it
-	  var blockUntilLaterHandle = new Sequencer.Handle();
+	  // Block until the handle is released
 	  sequencer.doWaitForHandle(blockUntilLaterHandle);
 	
-	  // Wait for the promise to be fulfilled (optional es6-promise-extension)
-	  // You can optionally obtain the promise's value and/or rejection reason
+	  sequencer.do(function () {
+	    log("4rd after waiting for a manually-created handle to be released");
+	  });
+	
+	  // Performs an action and waits until release() is called a certain number of times.
+	  // The sequencer proceeds after 5 seconds (when two releases have been performed).
+	  sequencer.doWaitForReleases(2, function (release) {
+	    setTimeout(release, 5000);
+	    setTimeout(release, 3000);
+	  });
+	
+	  sequencer.do(function () {
+	    log("5th after waiting for two release() calls");
+	  });
+	
+	  // Wait for a promise to be fulfilled.
+	  // You can optionally obtain the promise's value and/or rejection reason.
 	  var url = "https://cors-test.appspot.com/test";
 	  sequencer.doWaitForPromise(fetch(url), function (response) {
-	    console.log("Received HTTP " + response.status + " from " + url);
+	    log("> Promise Resolved : Received HTTP " + response.status + " from " + url);
 	  });
 	
-	  // This will run after the external handle is released
 	  sequencer.do(function () {
-	    console.log("5th after waiting for an external handle to be released");
+	    log("6th after waiting for a promise to be resolved");
 	  });
-	
-	  // Release the handle sometime later so that the sequence can continue.
-	  // Note that a long delay is used here because enqueueing tasks in the sequencer
-	  // is an instantaneous operation; this line runs almost instantly at page load!
-	  setTimeout(blockUntilLaterHandle.release, 15000);
 	};
 
 /***/ }),
@@ -211,6 +229,7 @@
 		__webpack_require__(6).extend(Sequencer.prototype);
 		__webpack_require__(7).extend(Sequencer.prototype);
 		__webpack_require__(8).extend(Sequencer.prototype);
+		__webpack_require__(9).extend(Sequencer.prototype);
 		
 		Sequencer.Handle = Handle; // Expose the Handle type in the API
 		
@@ -414,10 +433,16 @@
 		"use strict";
 		
 		var Handle = function Handle(onRelease) {
-		  var self = this;
+		  var that = this;
 		  var onReleaseHandlers = [];
 		
 		  if (!(typeof onRelease === "undefined")) onReleaseHandlers.push(onRelease);
+		
+		  function callReleaseHandlers() {
+		    onReleaseHandlers.forEach(function (handler) {
+		      return handler();
+		    });
+		  }
 		
 		  this.isReleased = false;
 		
@@ -426,11 +451,9 @@
 		  };
 		
 		  this.release = function () {
-		    if (self.isReleased) return;
-		    self.isReleased = true;
-		    onReleaseHandlers.forEach(function (handler) {
-		      handler();
-		    });
+		    if (that.isReleased) return;
+		    that.isReleased = true;
+		    callReleaseHandlers();
 		  };
 		};
 		
@@ -465,12 +488,15 @@
 		"use strict";
 		
 		var DoWaitTask = function DoWaitTask(duration) {
-		  var timeout = null;
+		  var that = this;
+		
+		  this.timeout = null;
+		
 		  this.perform = function (handle) {
-		    timeout = setTimeout(handle.release, duration);
+		    that.timeout = setTimeout(handle.release, duration);
 		  };
 		  this.cancel = function (handle) {
-		    if (timeout !== null) clearTimeout(timeout);
+		    if (that.timeout !== null) clearTimeout(that.timeout);
 		    handle.release();
 		  };
 		};
@@ -554,9 +580,11 @@
 	
 		"use strict";
 		
-		var DoWithHandleTask = function DoWithHandleTask(action) {
+		var DoWaitForRelease = function DoWaitForRelease(action) {
 		  this.perform = function (handle) {
-		    action(handle);
+		    // The caller is provided with the release() function directly.
+		    // The use of an handle is an internal implementation detail.
+		    action(handle.release);
 		  };
 		  this.cancel = function (handle) {
 		    handle.release();
@@ -565,12 +593,92 @@
 		
 		module.exports = {
 		  extend: function extend(sequencerPrototype) {
-		    sequencerPrototype.doWithHandle = function (action) {
-		      this.push(new DoWithHandleTask(action));
+		    sequencerPrototype.doWaitForRelease = function (action) {
+		      this.push(new DoWaitForRelease(action));
 		      return this;
 		    };
 		  }
 		};
+	
+	/***/ }),
+	/* 9 */
+	/***/ (function(module, exports, __webpack_require__) {
+	
+		"use strict";
+		
+		var CounterHandle = __webpack_require__(10);
+		
+		var DoWaitForReleases = function DoWaitForReleases(count, action) {
+		  var that = this;
+		
+		  this.counterHandle = new CounterHandle(count);
+		
+		  this.perform = function (handle) {
+		    // When the counter handle is released for the last time, the sequencer handle is released too.
+		    that.counterHandle.addOnReleaseHandler(handle.release);
+		
+		    // The caller is provided with the CounterHandle release() function directly.
+		    // The use of a CounterHandle is an internal implementation detail.
+		    action(that.counterHandle.release);
+		  };
+		  this.cancel = function (handle) {
+		    that.counterHandle.releaseAll();
+		  };
+		};
+		
+		module.exports = {
+		  extend: function extend(sequencerPrototype) {
+		    sequencerPrototype.doWaitForReleases = function (count, action) {
+		      this.push(new DoWaitForReleases(count, action));
+		      return this;
+		    };
+		  }
+		};
+	
+	/***/ }),
+	/* 10 */
+	/***/ (function(module, exports) {
+	
+		"use strict";
+		
+		var CounterHandle = function CounterHandle(count, onRelease) {
+		  var that = this;
+		  var onReleaseHandlers = [];
+		
+		  if (count === 0) throw new Error("Count must be greater than zero!");
+		
+		  if (!(typeof onRelease === "undefined")) onReleaseHandlers.push(onRelease);
+		
+		  function callReleaseHandlers() {
+		    onReleaseHandlers.forEach(function (handler) {
+		      return handler();
+		    });
+		  }
+		
+		  this.isReleased = false;
+		  this.releaseCount = 0;
+		
+		  this.addOnReleaseHandler = function (handler) {
+		    onReleaseHandlers.push(handler);
+		  };
+		
+		  this.release = function () {
+		    if (that.isReleased) return;
+		    that.releaseCount += 1;
+		    if (that.releaseCount === count) {
+		      that.isReleased = true;
+		      callReleaseHandlers();
+		    }
+		  };
+		
+		  this.releaseAll = function () {
+		    if (that.isReleased) return;
+		    that.isReleased = true;
+		    callReleaseHandlers();
+		  };
+		};
+		
+		module.exports = CounterHandle;
 	
 	/***/ })
 	/******/ ]);
