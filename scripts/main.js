@@ -1,5 +1,5 @@
 let Sequencer = require("sequencer.js");
-let Handle = Sequencer.Handle;
+let Handle = require("handles.js").Handle;
 let fetch = require("isomorphic-fetch");
 
 window.onload = function () {
